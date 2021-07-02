@@ -1,0 +1,362 @@
+---
+title: "Ozone Depletion"
+author: ''
+date: ''
+output:
+  word_document: default
+  html_document: default
+  pdf_document: 
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Ozone plays a different role in atmospheric chemistry at different heights in the Earth’s atmosphere. Concentrations of ozone are higher in the stratosphere which plays a crucial role in absorbing potential dangerous UV radiation from the sun. Whereas, ozone concentrations are relatively low in the lower atmosphere i.e troposphere where it forms as an air pollutant and can have a negative impact over human health. The investigation involves analyzing the ozone layer thickness through yearly changes between year 1927 and 2016 in Dobson units. Post analysis, the goal is to forecast the yearly changes for the next 5 years. The dataset contains one variable where a negative value represents a decrease in the thickness and a positive value represents an increase in the thickness.
+
+```{r}
+rm(list=ls())
+
+# loading the libraries
+library(TSA) 
+library(readr)
+library(tseries)
+
+# Reading the dataset contents
+ozone <- read.csv("C:/Users/winuser/Downloads/Projects/Time_Series/data1.csv", header = FALSE)
+
+# Setting time series object to data frame and checking the class
+ozone <- ts(as.vector(ozone), start = 1927, end = 2016, frequency = 1) 
+class(ozone)
+```
+
+```{r}
+# Plotting time series data
+plot(ozone, type = 'o', ylab = 'Thickness of ozone layer (Dobson units)', xlab = 'Year', main = 'Time series plot for thickness of Ozone layer', col = 'blue')
+```
+
+
+Trend: A downward trend can be observed in the mentioned plot. </br>
+Seasonality: The seasonality is not present. </br>
+Change in Variance: There seems to be no change in variance. </br>
+Intervention: Intervention is no observed in the series. </br>
+Behavior: The series looks auto regressive with many succeeding points and depicts Moving Average Behavior.
+
+```{r}
+# Plotting scatter plot with respect to previous year
+plot(y = ozone, x = zlag(ozone), ylab = "Thickness of Ozone layer (Dobson Units)", xlab="Previous year Ozone Thickness", main = "Scatter plot of neighboring thickness", col="blue")
+```
+```{r}
+# Correlation 
+y = ozone # Read the data in to y
+x = zlag(ozone) #Generate first lag of the series
+index = 2:length(x) # ignore the NA
+cor(y[index],x[index]) #Calculate the correlation 
+```
+
+The scatter plot shows a correlation between neighboring points and the correlation function indicate a strong positive correlation of thickness with the previous year.
+
+
+## Model techniques
+### Task 1
+
+**Linear Model**
+
+Fitting the series to Linear trend model.
+
+```{r}
+# Linear trend model
+ozone.model1 = lm(ozone~time(ozone)) # label the model as ozone.model1 
+summary(ozone.model1)
+```
+
+Estimates of slope and intercept are β^1 = -0.110029 and β^0 = 213.720155, respectively. Slope of linear trend model is statistically significant at 5% significance level. According to multiple R2 (coefficient of determination), 66.55% of the variation in ozone data time series is explained by estimated Linear trend model.
+
+```{r}
+# Plotting linear model
+plot(ozone, type = 'o', ylab = 'Thickness of Ozone layer (Dobson Units)', xlab = 'Year', main = "Fitted linear model to the Ozone Thickness", col = "blue")
+abline(ozone.model1, col = "red") # add the fitted least squares line from model1
+
+```
+
+### Residual analysis
+
+As mentioned earlier, if the trend model is reasonably correct, then the residuals should behave roughly like the true stochastic component, and various assumptions about the stochastic component can be assessed by looking at the residuals. Whereas, if the stochastic component is white noise, then the residuals should behave roughly like independent (normal) random variables with zero mean and standard deviation. 
+
+```{r}
+# Residual analysis
+# Standardized Residuals
+plot(y = rstudent(ozone.model1), x = as.vector(time(ozone)), type='o', ylab = 'Standardized Residuals', xlab = 'Year', main = "Time Series plot of residuals", col="blue", ylim = c(-3,3))
+```
+
+We can see in the residual plot that there are no departures from randomness.
+
+```{r}
+plot(y = rstudent(ozone.model1), x = as.vector(fitted(ozone.model1)), type = 'n', ylab = 'Standardized Residuals', xlab = 'Fitted Trend Values', main = "Time series plot of standardised residuals 
+     versus fitted trend values.", col = "blue")
+points(y = rstudent(ozone.model1), x = as.vector(fitted(ozone.model1)))
+```
+
+The scatter plot visualization shows random points however we don't see any rectangular pattern to confirm randomness.
+
+```{r}
+# Histogram
+hist(rstudent(ozone.model1), xlab = 'Standardized Residuals', main = "Histogram of the standardized residuals from
+     the Linear Trend model", col = "orange", xlim = c(-3,3))
+```
+
+Normality of Residuals can be checked using Histogram. The plot looks somewhat symmetrical and tails off at both high and low ends. 
+
+```{r}
+# Normal QQ plot
+qqnorm(y = rstudent(ozone.model1), main = "Normal Q-Q plot of the standardized residuals from 
+     the Linear Trend model", col = "blue")
+qqline(y = rstudent(ozone.model1), col = "red", lwd = 1)
+```
+
+We can see both the end tails of distribution tailing away from straight. 
+
+```{r}
+# Shapiro-Wilk Normality test
+shapiro.test(rstudent(ozone.model1))
+```
+
+Shapiro-Wilk test calculates the correlation between the residuals and the corresponding normal quantiles. High correlation corresponds to evidence of normality and vice versa. We get the p-value of 0.5372. Thus, we conclude not to reject the null hypothesis that the stochastic component of this model is normally distributed.
+
+```{r}
+# Sample Auto-correlation Function
+acf(rstudent(ozone.model1), main = "ACF of standardized residuals")
+```
+
+There are some lags above the horizontal dashed lines and thus we can infer that the stochastic component of the series is not white noise.
+
+</br>
+**Quadratic model**
+
+Fitting the series to Quadratic model.
+
+```{r}
+# Quadratic model
+t = time(ozone)
+t2 = t^2
+ozone.model2 = lm(ozone~t+t2) # label the model as ozone.model2
+summary(ozone.model2)
+```
+
+p-value is less than 0.05 which is statistically significant at 5% significance level. 73.31% of the variation in ozone data time series is explained by estimated Quadratic trend model which is significant compared to the Linear trend model.
+
+```{r}
+# Plotting fitted quadratic curve
+plot(ts(fitted(ozone.model2)), ylim = c(min(c(fitted(ozone.model2), as.vector(ozone))), 
+                                        max(c(fitted(ozone.model2), as.vector(ozone)))), 
+                                        ylab='Thickness of Ozone layer (Dobson Units)' , xlab='Year',
+                                        main = "Fitted quadratic curve to the Ozone layer thickness data", col = "red")
+lines(as.vector(ozone), type="o", col = "blue")
+legend ("topright", lty = 1, pch = 1, col = c("blue","red"), text.width = 25,
+        c("Time Series Plot","Quadratic Trend Line"))
+```
+
+The quadratic curve (red line) fits much better compared to that of linear trend.
+
+### Residual analysis
+
+```{r}
+# Residual analysis
+# Standardized Residuals
+plot(y = rstudent(ozone.model2), x = as.vector(time(ozone)), type='o', ylab = 'Standardized Residuals', xlab = 'Year', main = "Time Series plot of residuals", col="blue", ylim = c(-3,3))
+```
+
+The Quadratic Residual trend has been improved in contrast with the Linear trend.
+
+```{r}
+plot(y = rstudent(ozone.model2), x = as.vector(fitted(ozone.model2)), type = 'n', ylab = 'Standardized Residuals', xlab = 'Fitted Trend Values', main = "Time series plot of standardised residuals 
+     versus fitted trend values.", col = "blue")
+points(y = rstudent(ozone.model2), x = as.vector(fitted(ozone.model2)))
+```
+
+The scatter plot points does not look random.
+
+```{r}
+# Histogram
+hist(rstudent(ozone.model2), xlab = 'Standardized Residuals', main = "Histogram of the standardized residuals from
+     the Quadratic Trend model", col = "orange", xlim = c(-3,3))
+```
+
+We do not see a smooth bell shaped curve for normal distribution.
+
+```{r}
+# Normal QQ plot
+qqnorm(y = rstudent(ozone.model2), main = "Normal Q-Q plot of the standardized residuals from 
+     the Quadratic Trend model", col = "blue")
+qqline(y = rstudent(ozone.model2), col = "red", lwd = 1)
+```
+
+The tail ends depart from the straight line but looks improved considering the Linear model.
+
+```{r}
+# Shapiro-Wilk Normality test
+shapiro.test(rstudent(ozone.model2))
+```
+
+The p-value is 0.6493 and hence we cannot reject the null hypothesis which states that the the stochastic component of this model is normally distributed.
+
+```{r}
+# Sample Auto-correlation Function
+acf(rstudent(ozone.model2), main = "ACF of standardized residuals")
+```
+
+The plot displays several lags with higher values over the confidence interval and so the we can say that the stochastic component of the series is not white noise.
+
+</br>
+**Harmonic model**
+
+```{r}
+# Harmonic model
+har.=harmonic(ozone, 0.45) # calculate cos(2*pi*t) and sin(2*pi*t)
+ozone.model3 = lm(ozone~har.)
+summary(ozone.model3)
+```
+
+```{r}
+# Plotting fitted cosine curve
+plot(ts(fitted(ozone.model3)), ylim = c(min(c(fitted(ozone.model3),as.vector(ozone))), 
+                                        max(c(fitted(ozone.model3),as.vector(ozone)))), 
+     ylab="Thickness of Ozone layer (Dobson Units)", xlab="Year", 
+     main = "Fitted harmonic curve to Ozone layer thickness data", type = "l", lty = 1, col = "red")
+lines(as.vector(ozone), type="o", col = "blue")
+legend ("topright", lty = 1, pch = 1, col = c("blue","red"), text.width = 25,
+        c("Time Series Plot","Harmonic Trend Line"))
+
+```
+
+The p-value of the model is more than 0.05 and the adjusted R2 value is less than the other two models which implies that the model is insignificant. Also, seasonality is not present in the series and so the cosine trend couldn't fit to this data.
+
+
+## Summary
+
+Comparing all the models, we can conclude that Quadratic model is the best fit to the series since it has higher multiple R2 square value and Shapiro-Wilk Normality test value. 
+
+
+## Forecasting
+
+Predicting the yearly changes for 5 years with the Quadratic model.
+
+```{r}
+# Forcasting
+t = c(2017, 2018, 2019, 2020, 2021)
+t2 = t^2
+pred = data.frame(t,t2)
+forecast = predict(ozone.model2, pred, interval = "prediction")
+print(forecast)
+```
+
+```{r}
+# Plotting the forcast data
+plot(ozone, xlim = c(1926, 2022), ylim = c(-15, 5), type="o", ylab="Thickness of Ozone Layer (Dobson Units)" , main = " Forcasting using quadratic trend model", col="blue")
+lines(ts(as.vector(forecast [,1]), start = c(2017,1), frequency = 1), col="red", type="l", lwd=2)
+lines(ts(as.vector(forecast [,2]), start = c(2017,1), frequency = 1), col="darkgreen", type="l", lwd=2)
+lines(ts(as.vector(forecast [,3]), start = c(2017,1), frequency = 1), col="darkgreen", type="l", lwd=2)
+```
+
+Through the plot, we can say that the ozone layer thickness will gradually decrease after 5 years.
+
+
+## Task 2
+
+```{r}
+class(ozone)
+```
+```{r}
+par(mfrow=c(1,2)) 
+acf(ozone)
+pacf(ozone)
+par(mfrow=c(1,1)) 
+```
+
+A downward trend can be observed in the ACF plot whereas we can see that the PACF plot contains the first lag and confirms the trend.
+
+### Data Transformation
+
+We will use Box cox transformation to check if need to transform to reduce the changing variance.
+
+```{r}
+ozonetr = BoxCox.ar(ozone+abs(min(ozone))+1)
+```
+
+```{r}
+ozonetr$ci
+```
+We can see that the confidence interval lies between 0.9 and 1.5 which suggests that there is no need to use log or power transformation.4
+
+```{r}
+lambda = 1
+BC.ozone = (ozone^lambda-1)/lambda
+qqnorm(BC.ozone)
+qqline(BC.ozone, col = 2, lwd = 1, lty = 2)
+```
+
+```{r}
+shapiro.test(BC.ozone)
+```
+
+The shapiro test implies that the the series does not have normal distribution as p-value is below 0.05.
+
+```{r}
+diff.BC.ozone = diff(BC.ozone, differences = 1)
+plot(diff.BC.ozone,type='o',
+     ylab='Yearly changes in thickness of Ozone layer', 
+     main = 'Time series plot of first difference of BC transformed Ozone layer thickness series')
+```
+```{r}
+par(mfrow=c(1,2))
+acf(diff.BC.ozone)
+pacf(diff.BC.ozone)
+par(mfrow=c(1,1))
+```
+
+```{r}
+qqnorm(diff.BC.ozone)
+qqline(diff.BC.ozone, col = 2, lwd = 1, lty = 2)
+```
+
+The differencing box cox QQ looks improved considering the previous QQ plot.
+
+```{r}
+shapiro.test(diff.BC.ozone)
+```
+
+The p-value is more than 0.05 so we conclude to no reject the null hypothesis.
+
+```{r}
+adf.test(diff.BC.ozone)
+```
+
+We can say that time series after first lag is stationary as p value is not significant.
+
+```{r}
+eacf(diff.BC.ozone)
+```
+
+the set of models are ARIMA(1,1,3), ARIMA(2,1,3), and ARIMA(3,1,3)
+
+```{r}
+ozoneBIC = armasubsets(y=diff.BC.ozone, nar = 14,nma = 14,y.name = 'test',
+                        ar.method = 'ols')
+plot(ozoneBIC)
+```
+Through the shaded columns the coefficients are AR(11) and MA(10) which is ARIMA(11,1,3).
+
+
+## Conclusion
+
+The ozone layer thickness showed the downward trend with no seasonality, change in variation & intervention followed by which linear, quadratic and harmonic modeling was performed. </br>
+The quadratic model was suggested as the best fit to the ozone layer series data. However, there are some flaws associated with it. In the ACF plot, there were some significant lags which confirmed the smoothness of the time series plot. This wasn't expected in the white noise process. This could be due to the series being non-stationary. The non-stationary series was then converted into stationary to have a best fit model using differencing. The set of ARIMA models were ARIMA(1,1,3), ARIMA(2,1,3), ARIMA(3,1,3) andARIMA(11,1,3).
+
+
+## References
+
+https://ourworldindata.org/ozone-layer </br>
+MATH1318 Time Series Analysis notes 

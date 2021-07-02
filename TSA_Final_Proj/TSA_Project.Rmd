@@ -1,0 +1,448 @@
+---
+title: "Time Series on Yearly Expenditure of Eating Out in Australia"
+author: "Table of Contents"
+subtitle: "Group - Data Buzz"
+output: 
+  html_document:
+    toc: true 
+    toc_depth: 3  
+    number_sections: true  
+    theme: united  
+    highlight: tango
+---
+
+<style>
+a:link {
+    color: black;
+}
+
+a:visited {
+    color: blue;
+}
+
+ a:hover {
+    color: black;
+    text-decoration: underline;
+}
+
+</style>
+
+# Introduction
+
+In this report, analysis of "Monthly expenditure on eating out in Australia" is conducted. The report investigates different components of the series determining non-stationarity. The objective is to forecast the model for next 12 units (i.e., months)  inducing the best model parameters through model diagnostics. The dataset in consideration is the auscafe dataset found in the fpp2 package. The dataset gives the total monthly expenditure of australian people on cafes, restaurants, and takeaway food services in billion dollars from April 2009 to September 2017.
+
+## Required Packages
+
+```{r }
+defaultW <- getOption("warn") 
+options(warn = -1) 
+
+library(fpp2)
+library(TSA)
+library(tseries)
+library(forecast)
+library(lmtest)
+library(readr)
+library(FitAR)
+library(knitr)
+library(astsa)
+
+options(warn = defaultW)
+```
+
+## Functions
+
+The required functions for our analysis:
+
+```{r}
+defaultW <- getOption("warn") 
+
+options(warn = -1) 
+
+sort.score <- function(x, score = c("bic", "aic")){
+  if (score == "aic"){
+    x[with(x, order(AIC)),]
+  } else if (score == "bic") {
+    x[with(x, order(BIC)),]
+  } else {
+    warning('score = "x" only accepts valid arguments ("aic","bic")')
+  }
+}
+residual.analysis <- function(model, std = TRUE,start = 2, class = c("ARIMA","GARCH","ARMA-GARCH", "fGARCH")[1]){
+  if (class == "ARIMA"){
+    if (std == TRUE){
+      res.model = rstandard(model)
+    }else{
+      res.model = residuals(model)
+    }
+  }else if (class == "GARCH"){
+    res.model = model$residuals[start:model$n.used]
+  }else if (class == "ARMA-GARCH"){
+    res.model = model@fit$residuals
+  }else if (class == "fGARCH"){
+    res.model = model@residuals
+  }else {
+    stop("The argument 'class' must be either 'ARIMA' or 'GARCH' ")
+  }
+  par(mfrow=c(3,2))
+  plot(res.model,type='o',ylab='Standardised residuals', main="Time series plot of standardised residuals")
+  abline(h=0)
+  hist(res.model,main="Histogram of standardised residuals")
+  qqnorm(res.model,main="QQ plot of standardised residuals")
+  qqline(res.model, col = 2)
+  acf(res.model,main="ACF of standardised residuals")
+  print(shapiro.test(res.model))
+  k=0
+  LBQPlot(res.model, lag.max = 30, StartLag = k + 1, k = 0, SquaredQ = FALSE)
+  par(mfrow=c(1,1))
+  
+  options(warn = defaultW)
+}
+```
+
+
+# Model Specification
+
+## Importing Dataset
+
+We imported the fpp2 package which contains our desired dataset and then, we simply access our dataset by it's name directly.
+The auscafe data is already a time series data. We are showing the first 6 rows of the dataset.
+
+```{r}
+cafe.ts = ts(auscafe,start=c(2009,4), end=c(2017,9), frequency = 12)
+head(cafe.ts)
+```
+
+## Descriptive analysis
+
+The time series plot of our dataset is given below.
+
+```{r}
+plot(cafe.ts,type='l',ylab='Monthly expenditure(billions$)',
+     main='Fig 1 Expenditure on eating out in Australia from April:2009 to September:2017.')
+
+points(y=cafe.ts,x=time(cafe.ts), pch=as.vector(season(cafe.ts)))
+
+```
+
+We generated the time series plot. After looking at the graph, we deduce the following points:
+
+- Seasonality : There is a evidence of seasonality.
+
+- Trend : Linear upward trend (upward / downward line of mean)
+
+- Changing point : No intervention (changing point)
+
+- Variance : No changing variance
+
+## Correlation
+
+Checking the correlation by plotting the scatter plot of the time series.
+
+```{r}
+plot(y=cafe.ts,x=zlag(cafe.ts),ylab='Monthly Expenditure', xlab='Previous Year Monthly Expenditure',
+     col='Red',lwd=2,main='Fig 2 Correlation of Scatter Plot')
+```
+
+From the above, scatter plot we can see auto-correlation is present.
+Let us see the pearson coefficient for the correlation.
+
+## Pearson coefficient
+
+```{r}
+y = cafe.ts
+x = zlag(cafe.ts) 
+index = 2:length(x) 
+cor(y[index],x[index]) 
+```
+
+From the above scatter plot and the pearson coefficient, Linear upward trend and high correlation of 0.96 is observed.
+
+## ACF and PACF
+
+We plot ACF to see the correlation of the data points on their previous values. Let us see at the lags and find out.
+
+```{r}
+par(mfrow=c(1,2))
+acf(cafe.ts,lag.max = 60,main="Cafe time Series")
+pacf(cafe.ts,lag.max = 60,main="Cafe time Series")
+```
+
+Following deductions are made from the ACF and PACF plot above:
+
+- ACF has a decaying pattern and in sinusoidal form which means there is an
+existence of trend (decrease gradually as lags increase) and the ACF is periodic.
+
+- The bottom is at lag 6, which means the cycle would complete at 12. 
+
+- This implies that there are 12 lags which is same as a year.
+
+- Most of the expenditure are not within the confidence interval which indicates significant auto-correlation in the expenditure.
+
+- 2 Spikes at lag 1 which are significant followed by correlations that are insignificant indicates Auto regressive behavior.
+
+- Since trends and seasonality exists, we conclude that the series is non-stationary and not white noise.
+
+From this we infer the non-seasonal AR(1 or 2) model (correlation at low lags).
+
+## ADF Test and Shapiro-Wilk Test
+
+Now, we perform the Augmented Dickey Fuller test, which determines whether the series is stationary or not.
+H0 - The given time series is not stationary.
+H1 - The given time series is stationary.
+Moreover, we do the Shapiro Wilk test to determine the normality of the time series
+
+```{r}
+adf.test(cafe.ts)
+#As p greater than 0.05
+#Non stationarity evidence
+shapiro.test(cafe.ts)
+#Not normally distributed
+```
+
+The ADF test gives the p-value of 0.25 which is small enough to reject the null hypothesis and claim that the series is stationary. But after taking a look at the ACF and PACF plot it looks that the time series is not stationary. Therefore, we will assume the series to be non-stationary.
+The Shapiro-wilk test gives the p-value which is small enough to reject the null hypothesis.Thus, stating that the time series is normally distributed.
+
+## Modeling ARIMA
+
+As we can see, the data is non-stationary and evidence of seasonality is present we will try SARIMA models.
+As far as, the normality of data is concerned, we will be doing log transformation of the time series.
+First of all, We will do the seasonal differencing to get rid of seasonal trend and fitting a plain model until time series and ACF/PACF plots of residuals show no sign of seasonality.
+
+Taking the first seasonal difference, and seeing if the seasonal trend still exists.
+
+```{r}
+m1.cafe = arima(log(cafe.ts),order=c(0,0,0),seasonal=list(order=c(0,1,0), period=12))
+res.m1 = residuals(m1.cafe);  
+par(mfrow=c(1,1))
+plot(res.m1,xlab='Time',ylab='Residuals',main="Fig 3.1 Time series plot of the residuals")
+```
+
+```{r}
+par(mfrow=c(1,2))
+acf(res.m1, lag.max = 36, main = "The sample ACF of the residuals")
+pacf(res.m1, lag.max = 36, main = "The sample PACF of the residuals")
+```
+
+There exists a trend as evident by the ts plot. Moreover, trend and seasonality is still seen.
+As there exists a sinusoidal pattern we need to take ordinary difference.
+
+```{r}
+m2.cafe = arima(log(cafe.ts),order=c(0,1,0),seasonal=list(order=c(0,1,0), period=12))
+res.m2 = residuals(m2.cafe);  
+par(mfrow=c(1,1))
+plot(res.m2,xlab='Time',ylab='Residuals',main="Fig 3.2 Time series plot of the residuals")
+
+```
+
+```{r}
+par(mfrow=c(1,2))
+acf(res.m2, lag.max = 36, main = "The sample ACF of the residuals")
+pacf(res.m2, lag.max = 36, main = "The sample PACF of the residuals")
+```
+
+We can see the model is much improved. Although some lags still exists. We will eliminate these lags by taking the AR and MA component as required.
+Also, the model looks stationary.
+we see seasonal lags (1.2) in both ACF and PACF plot indicating SARMA(1,1).
+
+```{r}
+m3.cafe = arima(log(cafe.ts),order=c(0,1,0),seasonal=list(order=c(1,1,1), period=12))
+res.m3 = residuals(m3.cafe);  
+par(mfrow=c(1,1))
+plot(res.m3,xlab='Time',ylab='Residuals',main="Fig 3.3 Time series plot of the residuals")
+```
+
+```{r}
+par(mfrow=c(1,2))
+acf(res.m3, lag.max = 36, main = "The sample ACF of the residuals")
+pacf(res.m3, lag.max = 36, main = "The sample PACF of the residuals")
+
+```
+
+Correlation is still present on seasonal lag (in ACF plot). We use high number of Q (MA) until filtering out seasonal lags.
+
+
+```{r}
+m4.cafe = arima(log(cafe.ts),order=c(0,1,0),seasonal=list(order=c(1,1,2), period=12))
+res.m4 = residuals(m4.cafe);  
+par(mfrow=c(1,1))
+plot(res.m3,xlab='Time',ylab='Residuals',main="Fig 3.4 Time series plot of the residuals")
+```
+
+
+```{r}
+par(mfrow=c(1,2))
+acf(res.m4, lag.max = 36, main = "The sample ACF of the residuals")
+pacf(res.m4, lag.max = 36, main = "The sample PACF of the residuals")
+```
+
+We do not see any seasonal lags but few significant lags before seasonal lag.
+Although trend is not observed, we still transform the data.
+From the plots, we consider, SARMA(1,2) for seasonal terms and for no-seasonal terms, we consider, AR(2) and MA(3) model. 
+
+To verify the stationarity adf test was used and we found the series stationary.
+
+```{r}
+adf.test(res.m4)
+```
+
+Our model quite gracefully qualifies the stationarity test.
+
+# Model Fitting
+
+We are restricting EACF to 3 in both AR and MA parameters.
+Let us now take a look at the eacf to find the best candidate models.
+
+```{r}
+## EACF
+eacf(res.m4, ar.max = 3, ma.max = 3)
+```
+
+The possible models are:-
+- SARMA(2,1,0)(1,1,2) by ACF/PACF
+- SARMA(0,1,1)(1,1,2) by EACF
+- SARMA(1,1,2)(1,1,2) by EACF
+- SARMA(2,1,1)(1,1,2) by EACF
+- SARMA(3,1,2)(1,1,2) by EACF
+
+# Parameter Estimation
+
+We will now apply the coefficient test on all the candidate models to get the best possible outcome.
+
+```{r}
+model1.cafe = arima(log(cafe.ts),order=c(2,1,0),seasonal=list(order=c(1,1,2), period=12),method = "ML")
+coeftest(model1.cafe)
+```
+
+Model1 (2,1,0)(1,1,2) summary:
+Both the non-seasonal components are significant as the p-value is below 0.05
+
+```{r}
+model2.cafe = arima(log(cafe.ts),order=c(0,1,1),seasonal=list(order=c(1,1,2), period=12),method = "ML")
+coeftest(model2.cafe)
+```
+
+Model2 (0,1,1)(1,1,2) summary:
+The non-seasonal components are significant as the p-value is below 0.05
+
+```{r}
+model3.cafe = arima(log(cafe.ts),order=c(1,1,2),seasonal=list(order=c(1,1,2), period=12),method = "ML")
+coeftest(model3.cafe)
+```
+
+Model3 (1,1,2)(1,1,2) summary:
+All the non-seasonal components are significant as the p-value is below 0.05
+
+```{r}
+model4.cafe = arima(log(cafe.ts),order=c(2,1,1),seasonal=list(order=c(1,1,2), period=12),method = "ML")
+coeftest(model4.cafe)
+```
+
+Model4 (2,1,1)(1,1,2) summary:
+All the non-seasonal components are significant as the p-value is below 0.05
+Hence, the model is not good fit for the data.
+
+```{r}
+model5.cafe = arima(log(cafe.ts),order=c(3,1,2),seasonal=list(order=c(1,1,2), period=12),method = "ML")
+coeftest(model5.cafe)
+```
+
+Model5 (3,1,2)(1,1,2) summary:
+All the non-seasonal components are insignificant as the p-value is way above 0.05
+Hence, the model is not good fit for the data.
+
+
+## AIC & BIC 
+
+To select one best model we use AIC/BIC.
+
+```{r}
+sc.AIC=AIC(model1.cafe, model2.cafe, model3.cafe, model4.cafe, model5.cafe)
+sc.BIC=AIC(model1.cafe, model2.cafe, model3.cafe, model4.cafe, model5.cafe)
+sort.score(sc.AIC, score = "aic")
+```
+
+```{r}
+sort.score(sc.BIC, score = "aic")
+```
+
+Out of all the above models, model3 gives the best results. Model3 is (1,1,2)(1,1,2).
+Model3 outperforms all the other models as evident from the coefficient test as well as the AIC and BIC scores.
+Now we will do the residual analysis of Model3.
+
+## Testing for Overfitting
+
+```{r}
+model0.cafe = arima(log(cafe.ts),order=c(3,1,4),seasonal=list(order=c(1,1,2), period=12),method = "ML")
+coeftest(model0.cafe)
+```
+
+The overfitted model is highly insignificant as we can see none of the non-seasonal components have significant p-value.
+We now will see the residual analysis of this overfitted model.
+
+```{r}
+defaultW <- getOption("warn") 
+options(warn = -1) 
+
+residual.analysis(model=model0.cafe)
+
+options(warn = defaultW)
+```
+
+- We can see that the histogram is skewed to the left.
+- QQ plot is normalised with one outlier at the end.
+- ACF plot follows the white noise plot
+- Ljung Box test shows good residuals.
+
+But as we saw the coefficient test on this overfitted model which had no significant values we can say that this model is not suitable for our data.
+
+## Diagnostic Check for the selected Best model
+
+```{r}
+defaultW <- getOption("warn") 
+options(warn = -1)
+
+residual.analysis(model=model3.cafe)
+
+options(warn = defaultW)
+```
+
+The residual analysis suggests the following:
+- The histogram shows somewhat normal distribution
+- The ACF shows the presence of white noise which is perfect
+- The qq plot shows presence of normality 
+- Ljung Box test shows good residuals as well
+Moreover,The TS plot does not show any trend
+
+# Forecasting
+
+Now, we will do the forecasting for next 12 months. Choosing our best model which model3 (1,1,2)(1,1,2). We will use sarima.for function from astsa package. 
+
+```{r}
+defaultW <- getOption("warn") 
+options(warn = -1)
+
+# "Forecast for the next 12 months"
+sarima.for(cafe.ts,12,1,1,2,1,1,2,12)
+
+options(warn = defaultW)
+```
+
+The above plot is approached by seasonality.
+We can see the forecast matches the Pattern.
+
+# Conclusion
+
+Atlast, we did the forecasting for the next 12 months using our best model. We found that our forecast follow the trend as previous years that is a upward trend. Therefore, the restaurants are likely to get busier in the coming future. As the economy increases the food business will also have an positive effect of that.
+Moreover, as the dataset showed seasonality we used SARIMA model which turned out to be a good choice.
+
+# Summary
+
+In this project, we investigated seasonal ARIMA model which allows us to model time series whose seasonal tendencies are not as regular as we would have with a deterministic model. We found trend and seasonality in time series, ACF and PACF plots which confirm the non-stationarity. Through seasonal and non-seasonal differencing we eliminated the seasonality and trend except for 2 or 3 significant lags. ADF and Shapiro Wilk test were used to verify the stationarity and normality of Cafe Time Series. Further, we derived some possible models from EACF. Parameter estimation for model fitting was performed to determine the best model from coefficient results. AIC and BIC were used to verify the optimal model for overfitting. Then, residual analysis as a last step was used to diagnose the fitted model, followed by which forecasting with best model parameters was done. Forecasting showed a linear upwards trend and seasonality as expected. 
+
+# References
+
+[1] Demirhan, H. Ph.D. Time Series in R. [online] Canvas. Available at: <https://rmit.instructure.com/courses/79716/modules> [Accessed 13 June 2021].
+
+[2] Cafe: Quarterly expenditure on eating out in Australia in fpp: Data for "Forecasting: principles and practice". [online] Rdrr.io. Available at: <https://rdrr.io/cran/fpp/man/cafe.html> [Accessed 13 June 2021].
+
